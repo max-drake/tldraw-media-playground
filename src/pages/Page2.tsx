@@ -1,5 +1,4 @@
 import { Tldraw } from 'tldraw'
-import 'tldraw/tldraw.css'
 
 /**
  * Page 2 – a separate, isolated tldraw editor instance.
