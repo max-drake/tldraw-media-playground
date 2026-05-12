@@ -9,6 +9,9 @@
  *
  * The webcam feed is shown in a small mirrored overlay so the user can see
  * themselves. Landmark x coordinates are flipped (1 - x) to match the mirror.
+ *
+ * A PointerOverlayUtil renders a visual cursor (ring when pointing, filled dot
+ * when pinching) on both the main canvas and the minimap.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -19,9 +22,13 @@ import {
   createTLStore,
   defaultShapeUtils,
   defaultBindingUtils,
+  OverlayUtil,
+  defaultOverlayUtils,
 } from 'tldraw'
+import { atom } from '@tldraw/state'
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision'
+import type { TLOverlay } from 'tldraw'
 
 // Hand landmark indices (MediaPipe convention)
 const INDEX_TIP = 8
@@ -36,6 +43,142 @@ const store = createTLStore({
   shapeUtils: [...defaultShapeUtils],
   bindingUtils: [...defaultBindingUtils],
 })
+
+// ---------------------------------------------------------------------------
+// Shared reactive atom – updated by HandTrackingController, consumed by
+// PointerOverlayUtil.  Page-space coordinates so the overlay renders correctly
+// at any zoom level.
+// ---------------------------------------------------------------------------
+
+interface HandPointerState {
+  /** Whether a right hand is currently detected */
+  visible: boolean
+  /** Index-finger-tip position in page coordinates */
+  x: number
+  y: number
+  /** True when a pinch (index + thumb close together) is detected */
+  pinching: boolean
+}
+
+const handPointerAtom = atom<HandPointerState>('handPointer', {
+  visible: false,
+  x: 0,
+  y: 0,
+  pinching: false,
+})
+
+// ---------------------------------------------------------------------------
+// TLOverlay type for the hand pointer
+// ---------------------------------------------------------------------------
+
+interface TLHandPointerOverlay extends TLOverlay {
+  type: 'hand-pointer'
+  props: {
+    x: number
+    y: number
+    pinching: boolean
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PointerOverlayUtil – renders the hand-pointer on the main canvas and minimap
+// ---------------------------------------------------------------------------
+
+const POINTER_RADIUS = 18       // canvas radius (page units, scales with zoom)
+const POINTER_PINCH_RADIUS = 12 // smaller radius when pinching
+const MINIMAP_RADIUS = 6        // desired pixel radius on minimap
+
+export class PointerOverlayUtil extends OverlayUtil<TLHandPointerOverlay> {
+  static override type = 'hand-pointer'
+
+  options = {
+    // Paint on top of everything built-in (which uses up to ~300)
+    zIndex: 400,
+  }
+
+  isActive(): boolean {
+    return handPointerAtom.get().visible
+  }
+
+  getOverlays(): TLHandPointerOverlay[] {
+    const { x, y, pinching } = handPointerAtom.get()
+    return [
+      {
+        id: 'hand-pointer:tip',
+        type: 'hand-pointer',
+        props: { x, y, pinching },
+      },
+    ]
+  }
+
+  render(ctx: CanvasRenderingContext2D, overlays: TLHandPointerOverlay[]): void {
+    for (const overlay of overlays) {
+      const { x, y, pinching } = overlay.props
+      _drawPointer(ctx, x, y, pinching, POINTER_RADIUS, POINTER_PINCH_RADIUS)
+    }
+  }
+
+  renderMinimap(
+    ctx: CanvasRenderingContext2D,
+    overlays: TLHandPointerOverlay[],
+    zoom: number
+  ): void {
+    // The context is already in page space. We convert our desired pixel radius
+    // into page units so the dot is a consistent size on screen.
+    const r = MINIMAP_RADIUS / zoom
+
+    for (const overlay of overlays) {
+      const { x, y, pinching } = overlay.props
+      _drawPointer(ctx, x, y, pinching, r, r * 0.67)
+    }
+  }
+}
+
+/**
+ * Draw a single pointer indicator at (x, y) in the current context space.
+ *
+ * States:
+ *  - Pointing (not pinching): hollow ring with a small centre dot –
+ *    indicates the finger is hovering but not "pressing".
+ *  - Pinching: solid filled circle – indicates a click / drag is active.
+ */
+function _drawPointer(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  pinching: boolean,
+  pointingRadius: number,
+  pinchingRadius: number
+): void {
+  ctx.save()
+  ctx.beginPath()
+
+  if (pinching) {
+    // Filled dot — active / pressed state
+    const r = pinchingRadius
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(233, 69, 96, 0.85)'
+    ctx.fill()
+    // Thin white ring for contrast
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+    ctx.lineWidth = Math.max(1, r * 0.12)
+    ctx.stroke()
+  } else {
+    // Hollow ring — hovering / pointing state
+    const r = pointingRadius
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(233, 69, 96, 0.9)'
+    ctx.lineWidth = Math.max(1, r * 0.15)
+    ctx.stroke()
+    // Small filled centre dot
+    ctx.beginPath()
+    ctx.arc(x, y, Math.max(1, r * 0.18), 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(233, 69, 96, 0.9)'
+    ctx.fill()
+  }
+
+  ctx.restore()
+}
 
 // ---------------------------------------------------------------------------
 // HandTrackingController – inner component that runs inside the Tldraw tree
@@ -140,6 +283,8 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
         ;(video.srcObject as MediaStream).getTracks().forEach((t) => t.stop())
         video.srcObject = null
       }
+      // Hide the overlay pointer when the controller unmounts
+      handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false })
       // Restore default pointer environment
       tlenvReactive.set({ ...tlenvReactive.get(), isCoarsePointer: false })
     }
@@ -148,7 +293,8 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
   }, [])
 
   /**
-   * Translate a HandLandmarkerResult into tldraw pointer events.
+   * Translate a HandLandmarkerResult into tldraw pointer events and update
+   * the handPointerAtom so the PointerOverlayUtil can render the cursor.
    */
   function processResult(result: HandLandmarkerResult) {
     const container = containerRef.current
@@ -170,7 +316,8 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
     }
 
     if (rightHandIdx === -1) {
-      // No right hand detected – cancel any active pinch drag.
+      // No right hand detected – hide overlay and cancel any active pinch drag.
+      handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false })
       if (isPinchedRef.current) {
         isPinchedRef.current = false
         editor.dispatch({
@@ -192,8 +339,8 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
     const thumbTip = landmarks[THUMB_TIP]
 
     // Mirror x so the on-screen pointer matches the mirrored video preview.
-    const canvasX = (1 - indexTip.x) * W
-    const canvasY = indexTip.y * H
+    const screenX = (1 - indexTip.x) * W
+    const screenY = indexTip.y * H
 
     // Euclidean distance in normalised [0,1] space.
     const dx = indexTip.x - thumbTip.x
@@ -201,7 +348,16 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
     const dist = Math.sqrt(dx * dx + dy * dy)
     const pinching = dist < PINCH_THRESHOLD
 
-    const point = { x: canvasX, y: canvasY }
+    const point = { x: screenX, y: screenY }
+
+    // Convert screen-space → page-space for the overlay util.
+    const pagePoint = editor.screenToPage(point)
+    handPointerAtom.set({
+      visible: true,
+      x: pagePoint.x,
+      y: pagePoint.y,
+      pinching,
+    })
 
     // Always send a move event so the cursor tracks the finger tip.
     editor.dispatch({
@@ -321,12 +477,15 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
 // Page component
 // ---------------------------------------------------------------------------
 
+// Include all default overlays plus our custom hand-pointer overlay.
+const overlayUtils = [...defaultOverlayUtils, PointerOverlayUtil] as const
+
 export default function HandTrackingPage() {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <Tldraw store={store}>
+      <Tldraw store={store} overlayUtils={overlayUtils}>
         <HandTrackingController containerRef={containerRef} />
       </Tldraw>
     </div>
