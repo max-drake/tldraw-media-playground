@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@cloudflare/kv-asset-handler": "^0.5.0",
+    "@mediapipe/tasks-vision": "0.10.35",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tldraw": "^5.0.0"
