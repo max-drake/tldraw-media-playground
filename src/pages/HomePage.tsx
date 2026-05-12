@@ -18,7 +18,7 @@ export default function HomePage() {
       <p style={{ fontSize: 16, opacity: 0.8 }}>
         Choose a page to open a tldraw editor.
       </p>
-      <div style={{ display: 'flex', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button
           onClick={() => navigate('/page-1')}
           style={{
@@ -47,7 +47,25 @@ export default function HomePage() {
         >
           Page 2
         </button>
+        <button
+          onClick={() => navigate('/hand-tracking')}
+          style={{
+            padding: '10px 24px',
+            borderRadius: 8,
+            border: '2px solid #e94560',
+            cursor: 'pointer',
+            background: '#16213e',
+            color: '#fff',
+            fontSize: 16,
+          }}
+        >
+          ✋ Hand Tracking
+        </button>
       </div>
+      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 400, textAlign: 'center' }}>
+        The Hand Tracking page uses your webcam and MediaPipe to turn your
+        right index finger into a pointer. Pinch index + thumb together to draw.
+      </p>
     </div>
   )
 }
