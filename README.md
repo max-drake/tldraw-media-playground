@@ -32,18 +32,20 @@ Minimal scaffolding for multiple tldraw editor instances served via a Cloudflare
 
 The CF Worker serves `index.html` for all SPA routes; static assets (JS/CSS) are served directly from the KV site bucket.
 
+> **Note:** This project uses **yarn** as its package manager. Node >=22 is required (due to `@cloudflare/kv-asset-handler`). Do not use `npm install` — it will create a `package-lock.json` which is gitignored.
+
 ## Dev
 
 ```bash
-npm install
-npm run dev          # Vite dev server (localhost:5173)
-npm run typecheck    # TypeScript check
+yarn install
+yarn dev          # Vite dev server (localhost:5173)
+yarn typecheck    # TypeScript check
 ```
 
 ## Build & Deploy
 
 ```bash
-npm run build        # Outputs to dist/
-npm run worker:dev   # Test worker locally with wrangler
-npm run worker:deploy
+yarn build        # Outputs to dist/
+yarn worker:dev   # Test worker locally with wrangler
+yarn worker:deploy
 ```
