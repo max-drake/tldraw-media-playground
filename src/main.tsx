@@ -1,5 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import 'tldraw/tldraw.css'
+import './index.css'
 import App from './App'
 
 const root = document.getElementById('root')!

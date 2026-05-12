@@ -1,0 +1,7 @@
+/* Ensure the tldraw container uses the tldraw_sans font that tldraw ships.
+   The tldraw CSS defines --tl-font-sans inside .tl-container but never sets
+   font-family on the container itself, so without this the UI (page menu,
+   zoom percentage, etc.) inherits the browser's default serif font. */
+.tl-container {
+  font-family: var(--tl-font-sans);
+}
