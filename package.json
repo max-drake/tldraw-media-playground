@@ -1,5 +1,30 @@
 {
+  "name": "tldraw-media-playground",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --project tsconfig.json",
+    "typecheck:worker": "tsc --project tsconfig.worker.json",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy"
+  },
   "dependencies": {
+    "@cloudflare/kv-asset-handler": "^0.5.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "tldraw": "^5.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260511.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.12",
+    "wrangler": "^4.90.1"
   }
 }
