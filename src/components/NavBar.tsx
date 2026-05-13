@@ -1,6 +1,6 @@
 import { navigate } from '../App'
 
-type Route = '/' | '/page-1' | '/page-2' | '/hand-tracking'
+type Route = '/' | '/page-1' | '/page-2' | '/hand-tracking' | '/eye-tracking'
 
 interface NavBarProps {
   current: Route
@@ -11,6 +11,7 @@ const LINKS: { label: string; to: Route }[] = [
   { label: 'Page 1', to: '/page-1' },
   { label: 'Page 2', to: '/page-2' },
   { label: '✋ Hand Tracking', to: '/hand-tracking' },
+  { label: '👁️ Eye Tracking', to: '/eye-tracking' },
 ]
 
 export default function NavBar({ current }: NavBarProps) {

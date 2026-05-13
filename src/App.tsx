@@ -3,15 +3,17 @@ import HomePage from './pages/HomePage'
 import Page1 from './pages/Page1'
 import Page2 from './pages/Page2'
 import HandTrackingPage from './pages/HandTrackingPage'
+import EyeTrackingPage from './pages/EyeTrackingPage'
 import NavBar from './components/NavBar'
 
-type Route = '/' | '/page-1' | '/page-2' | '/hand-tracking'
+type Route = '/' | '/page-1' | '/page-2' | '/hand-tracking' | '/eye-tracking'
 
 function getRoute(): Route {
   const path = window.location.pathname
   if (path === '/page-1') return '/page-1'
   if (path === '/page-2') return '/page-2'
   if (path === '/hand-tracking') return '/hand-tracking'
+  if (path === '/eye-tracking') return '/eye-tracking'
   return '/'
 }
 
@@ -37,6 +39,7 @@ export default function App() {
         {route === '/page-1' && <Page1 />}
         {route === '/page-2' && <Page2 />}
         {route === '/hand-tracking' && <HandTrackingPage />}
+        {route === '/eye-tracking' && <EyeTrackingPage />}
       </div>
     </div>
   )
