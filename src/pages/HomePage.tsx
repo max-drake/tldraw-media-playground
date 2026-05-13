@@ -20,34 +20,6 @@ export default function HomePage() {
       </p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button
-          onClick={() => navigate('/page-1')}
-          style={{
-            padding: '10px 24px',
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer',
-            background: '#e94560',
-            color: '#fff',
-            fontSize: 16,
-          }}
-        >
-          Page 1
-        </button>
-        <button
-          onClick={() => navigate('/page-2')}
-          style={{
-            padding: '10px 24px',
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer',
-            background: '#e94560',
-            color: '#fff',
-            fontSize: 16,
-          }}
-        >
-          Page 2
-        </button>
-        <button
           onClick={() => navigate('/hand-tracking')}
           style={{
             padding: '10px 24px',
