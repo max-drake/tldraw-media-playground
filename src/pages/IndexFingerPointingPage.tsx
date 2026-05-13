@@ -11,7 +11,10 @@
  * 5. Debug panel above webcam (D to toggle).
  * 6. Webcam border colour-codes tracking state.
  * 7. Dual-stage smoothing: EMA + One-Euro filter.
- * 8. Dark mode toggle via "flip off" gesture (middle finger, 2s hold, 2s cooldown).
+ * 8. Dark mode toggle via "flip off" gesture:
+ *    - Fires instantly when gesture is first detected (no hold required).
+ *    - Not eligible to fire again until gesture stops AND a 2s cooldown elapses.
+ *    - Uses editor.user.updateUserPreferences to toggle tldraw dark mode.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -64,9 +67,10 @@ const SMOOTH_ALPHA         = 0.80
 const ONE_EURO_MIN_CUTOFF  = 1.2
 const ONE_EURO_BETA        = 0.005
 const ONE_EURO_D_CUTOFF    = 1.0
-const FLIP_MIDDLE_THRESH   = 0.82
-const FLIP_DEBOUNCE_MS     = 2000
-const FLIP_COOLDOWN_MS     = 2000
+const FLIP_MIDDLE_THRESH    = 0.82
+// After the flip gesture stops being detected, we wait this long before
+// becoming eligible to fire again (prevents flicker re-triggering).
+const FLIP_COOLDOWN_MS      = 2000
 
 const store = createTLStore({
   shapeUtils: [...defaultShapeUtils],
@@ -319,7 +323,7 @@ interface DebugState {
   projectionResult: 'ok' | 'off-screen' | 'no-hand' | 'not-pointing' | 'none'
   rawSx: number | null; rawSy: number | null; smoothedSx: number | null; smoothedSy: number | null
   pressing: boolean; fps: number; cosSim12: number | null; cosSim23: number | null
-  flipping: boolean; flipHoldMs: number; darkMode: boolean
+  flipping: boolean; flipEligible: boolean; darkMode: boolean
 }
 
 function findRightHand(result: HandLandmarkerResult): number {
@@ -340,11 +344,9 @@ function DebugRow({ label, value, color }: { label: string; value: string; color
 
 interface ControllerProps {
   containerRef: React.RefObject<HTMLDivElement | null>
-  darkMode: boolean
-  onToggleDarkMode: () => void
 }
 
-function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: ControllerProps) {
+function IndexFingerController({ containerRef }: ControllerProps) {
   const editor = useEditor()
   const videoRef          = useRef<HTMLVideoElement | null>(null)
   const skeletonCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -355,9 +357,11 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
   const euroXRef          = useRef(new OneEuroFilter())
   const euroYRef          = useRef(new OneEuroFilter())
   const fpsRef            = useRef({ count: 0, lastTime: performance.now(), fps: 0 })
-  const flipStartRef      = useRef<number | null>(null)
-  const flipCoolUntil     = useRef<number>(0)
-  const flipHoldMsRef     = useRef(0)
+  // Flip-off gesture debounce state:
+  //   flipFiredRef:     true if we already toggled during this continuous gesture session
+  //   flipCoolUntilRef: timestamp after which we're eligible to fire again (set when gesture stops)
+  const flipFiredRef     = useRef(false)
+  const flipCoolUntilRef = useRef<number>(0)
 
   const [debugVisible, setDebugVisible] = useState(true)
   const [debug, setDebug] = useState<DebugState>({
@@ -367,10 +371,8 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
     projectionResult: 'none',
     rawSx: null, rawSy: null, smoothedSx: null, smoothedSy: null,
     pressing: false, fps: 0, cosSim12: null, cosSim23: null,
-    flipping: false, flipHoldMs: 0, darkMode: false,
+    flipping: false, flipEligible: true, darkMode: false,
   })
-
-  useEffect(() => { setDebug((d) => ({ ...d, darkMode })) }, [darkMode])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -379,9 +381,6 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  const onToggleRef = useRef(onToggleDarkMode)
-  useEffect(() => { onToggleRef.current = onToggleDarkMode }, [onToggleDarkMode])
 
   useEffect(() => {
     tlenvReactive.set({ ...tlenvReactive.get(), isCoarsePointer: true })
@@ -493,13 +492,19 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
     if (rightIdx === -1) {
       fingerPointerAtom.set({ visible: false, x: 0, y: 0, pressing: false })
       smoothRef.current = null; euroXRef.current.reset(); euroYRef.current.reset()
-      flipStartRef.current = null; flipHoldMsRef.current = 0
+      // When hand disappears after a fired toggle, start the cooldown
+      if (flipFiredRef.current) {
+        flipCoolUntilRef.current = timestamp + FLIP_COOLDOWN_MS
+        flipFiredRef.current = false
+      }
+      const flipEligible = !flipFiredRef.current && timestamp >= flipCoolUntilRef.current
       setDebug((d) => ({
         ...d, fps, handDetected: false, indexUnfurled: false,
         thumbOrthogonal: false, thumbCosVal: null, projectionResult: 'no-hand',
         rawSx: null, rawSy: null, smoothedSx: null, smoothedSy: null,
         pressing: false, cosSim12: null, cosSim23: null,
-        flipping: false, flipHoldMs: 0,
+        flipping: false, flipEligible,
+        darkMode: editor.user.getIsDarkMode(),
       }))
       releasePress(editor.inputs.currentPagePoint)
       return
@@ -507,23 +512,37 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
 
     const wl = result.worldLandmarks[rightIdx]
 
-    // Flip-off gesture
+    // ── Flip-off gesture (dark mode toggle) ──────────────────────────────────
+    // State machine:
+    //   ELIGIBLE  (!flipFiredRef && now >= flipCoolUntilRef):
+    //             Ready to fire. Toggle immediately on first detection.
+    //   FIRED     (flipFiredRef):
+    //             Already toggled this session. Wait for gesture to stop.
+    //   COOLING   (!flipFiredRef && now < flipCoolUntilRef):
+    //             Gesture ended; counting down before becoming eligible again.
     const { flipping } = isFlippingOff(wl)
     const now = timestamp
+    const eligible = !flipFiredRef.current && now >= flipCoolUntilRef.current
+
     if (flipping) {
-      if (flipStartRef.current === null) flipStartRef.current = now
-      const holdMs = now - flipStartRef.current
-      flipHoldMsRef.current = holdMs
-      if (holdMs >= FLIP_DEBOUNCE_MS && now >= flipCoolUntil.current) {
-        onToggleRef.current()
-        flipCoolUntil.current = now + FLIP_COOLDOWN_MS
-        flipStartRef.current = null
-        flipHoldMsRef.current = 0
+      if (eligible) {
+        // Toggle tldraw dark mode immediately
+        const newScheme = editor.user.getIsDarkMode() ? 'light' : 'dark'
+        editor.user.updateUserPreferences({ colorScheme: newScheme })
+        flipFiredRef.current = true
       }
+      // If already fired (!eligible), do nothing — wait for gesture to stop
     } else {
-      flipStartRef.current = null
-      flipHoldMsRef.current = 0
+      // Gesture not active
+      if (flipFiredRef.current) {
+        // Gesture just ended after we fired — start the cooldown now
+        flipCoolUntilRef.current = now + FLIP_COOLDOWN_MS
+        flipFiredRef.current = false
+      }
+      // If in cooldown (!flipFiredRef && now < flipCoolUntilRef), just wait
     }
+
+    const flipEligible = !flipFiredRef.current && now >= flipCoolUntilRef.current
 
     // Index pointing
     const { unfurled, cs12, cs23 } = isIndexUnfurled(wl)
@@ -536,7 +555,8 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
         thumbOrthogonal: false, thumbCosVal: null, projectionResult: 'not-pointing',
         rawSx: null, rawSy: null, smoothedSx: null, smoothedSy: null,
         pressing: false, cosSim12: cs12, cosSim23: cs23,
-        flipping, flipHoldMs: flipHoldMsRef.current,
+        flipping, flipEligible,
+        darkMode: editor.user.getIsDarkMode(),
       }))
       releasePress(editor.inputs.currentPagePoint)
       return
@@ -553,7 +573,8 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
         thumbOrthogonal: thumbOrtho, thumbCosVal: thumbCos, projectionResult: 'off-screen',
         rawSx: null, rawSy: null, smoothedSx: null, smoothedSy: null,
         pressing: false, cosSim12: cs12, cosSim23: cs23,
-        flipping, flipHoldMs: flipHoldMsRef.current,
+        flipping, flipEligible,
+        darkMode: editor.user.getIsDarkMode(),
       }))
       return
     }
@@ -578,7 +599,8 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
       rawSx: Math.round(proj.sx), rawSy: Math.round(proj.sy),
       smoothedSx: Math.round(screenX), smoothedSy: Math.round(screenY),
       pressing, cosSim12: cs12, cosSim23: cs23,
-      flipping, flipHoldMs: flipHoldMsRef.current,
+      flipping, flipEligible,
+      darkMode: editor.user.getIsDarkMode(),
     }))
 
     editor.dispatch({
@@ -612,8 +634,6 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
 
   const CAM_W = 260, CAM_H = 195
   const DEBUG_BOTTOM = CAM_H + 8 + 10
-  const flipPct = Math.min(1, flipHoldMsRef.current / FLIP_DEBOUNCE_MS)
-
   return (
     <>
       {debugVisible && (
@@ -677,8 +697,12 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
             color={debug.pressing ? '#f0a030' : '#7fff7f'} />
           <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 4 }}>
             <DebugRow label="🖕 Flip off"
-              value={debug.flipping ? `holding… ${Math.round(flipPct * 100)}%` : 'not detected'}
-              color={debug.flipping ? '#cc44cc' : '#555'} />
+              value={
+                debug.flipping
+                  ? (debug.flipEligible ? '🟣 detected → firing!' : '🟣 detected (already fired)')
+                  : (debug.flipEligible ? 'not detected (eligible)' : 'not detected (cooling down)')
+              }
+              color={debug.flipping ? '#cc44cc' : debug.flipEligible ? '#888' : '#555'} />
             <DebugRow label="Dark mode"
               value={debug.darkMode ? '🌙 on' : '☀️ off'}
               color={debug.darkMode ? '#aaaaff' : '#ffcc44'} />
@@ -700,7 +724,7 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
           zIndex: 500, pointerEvents: 'none', whiteSpace: 'nowrap',
         }}>
           {modelStatus === 'loading' && '⏳ Initialising…'}
-          {modelStatus === 'ready'   && '☝️ Extend index to point · L=hover · Lower thumb=draw · 🖕 2s=dark mode'}
+          {modelStatus === 'ready'   && '☝️ Extend index to point · L=hover · Lower thumb=draw · 🖕 flip=dark mode'}
           {modelStatus === 'error'   && '⚠ Hand tracking unavailable'}
         </div>
       )}
@@ -740,14 +764,6 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
             display: modelStatus === 'ready' ? 'block' : 'none',
           }}
         />
-        {debug.flipping && flipPct > 0 && (
-          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'rgba(0,0,0,0.4)' }}>
-            <div style={{
-              height: '100%', width: `${flipPct * 100}%`,
-              background: 'rgba(204,68,204,0.9)', transition: 'width 0.1s linear',
-            }} />
-          </div>
-        )}
         <div style={{
           position: 'absolute', top: 5, right: 5,
           width: 8, height: 8, borderRadius: '50%',
@@ -764,7 +780,7 @@ function IndexFingerController({ containerRef, darkMode, onToggleDarkMode }: Con
           zIndex: 500, pointerEvents: 'none', whiteSpace: 'nowrap',
         }}>
           ☝️ Extend index to point &nbsp;·&nbsp; 🤙 L-shape = hover &nbsp;·&nbsp; 👇 Lower thumb = draw
-          &nbsp;·&nbsp; 🖕 Hold 2s = dark mode
+          &nbsp;·&nbsp; 🖕 Flip off = toggle dark mode
           &nbsp;·&nbsp; <kbd style={{ color: '#999', fontSize: 11 }}>D</kbd> = debug
         </div>
       )}
@@ -776,14 +792,10 @@ const overlayUtils = [...defaultOverlayUtils, FingerPointerOverlayUtil] as const
 
 export default function IndexFingerPointingPage() {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const [darkMode, setDarkMode] = useState(false)
-  const toggleDarkMode = () => setDarkMode((v) => !v)
-
   return (
     <div
       ref={containerRef}
       style={{ width: '100%', height: '100%', position: 'relative' }}
-      data-color-scheme={darkMode ? 'dark' : 'light'}
     >
       <Tldraw
         store={store}
@@ -791,8 +803,6 @@ export default function IndexFingerPointingPage() {
       >
         <IndexFingerController
           containerRef={containerRef}
-          darkMode={darkMode}
-          onToggleDarkMode={toggleDarkMode}
         />
       </Tldraw>
     </div>
