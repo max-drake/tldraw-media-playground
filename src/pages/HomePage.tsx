@@ -47,11 +47,26 @@ export default function HomePage() {
         >
           👁️ Eye Tracking
         </button>
+        <button
+          onClick={() => navigate('/blink-to-click')}
+          style={{
+            padding: '10px 24px',
+            borderRadius: 8,
+            border: '2px solid #ffd93d',
+            cursor: 'pointer',
+            background: '#16213e',
+            color: '#fff',
+            fontSize: 16,
+          }}
+        >
+          😑 Blink to Click
+        </button>
       </div>
-      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 500, textAlign: 'center' }}>
+      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 540, textAlign: 'center' }}>
         Hand Tracking uses your webcam and MediaPipe to turn your right index finger into a
         pointer. Eye Tracking uses Peekr (MIT, ONNX) to map your gaze to the canvas — dwell
-        your eyes on a spot to click.
+        your eyes on a spot to click. Blink to Click fires left-click when you blink (both
+        eyes) and right-click when you wink (one eye), using the current mouse-cursor position.
       </p>
     </div>
   )
