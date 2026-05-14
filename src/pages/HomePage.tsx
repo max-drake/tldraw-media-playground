@@ -47,11 +47,27 @@ export default function HomePage() {
         >
           👁️ Eye Tracking
         </button>
+        <button
+          onClick={() => navigate('/voice-drawing')}
+          style={{
+            padding: '10px 24px',
+            borderRadius: 8,
+            border: '2px solid #ff5078',
+            cursor: 'pointer',
+            background: '#16213e',
+            color: '#fff',
+            fontSize: 16,
+          }}
+        >
+          🎙️ Voice Drawing
+        </button>
       </div>
-      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 500, textAlign: 'center' }}>
+      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 600, textAlign: 'center' }}>
         Hand Tracking uses your webcam and MediaPipe to turn your right index finger into a
         pointer. Eye Tracking uses Peekr (MIT, ONNX) to map your gaze to the canvas — dwell
-        your eyes on a spot to click.
+        your eyes on a spot to click. Voice Drawing uses the Web Speech API so you can control
+        the canvas entirely by voice — say &ldquo;draw rectangle&rdquo;, &ldquo;undo&rdquo;,
+        &ldquo;zoom in&rdquo; and more.
       </p>
     </div>
   )
