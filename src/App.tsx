@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react'
 import HomePage from './pages/HomePage'
 import HandTrackingPage from './pages/HandTrackingPage'
 import EyeTrackingPage from './pages/EyeTrackingPage'
+import FlappyBirdPage from './pages/FlappyBirdPage'
 import NavBar from './components/NavBar'
 
-type Route = '/' | '/hand-tracking' | '/eye-tracking'
+type Route = '/' | '/hand-tracking' | '/eye-tracking' | '/flappy-bird'
 
 function getRoute(): Route {
   const path = window.location.pathname
   if (path === '/hand-tracking') return '/hand-tracking'
   if (path === '/eye-tracking') return '/eye-tracking'
+  if (path === '/flappy-bird') return '/flappy-bird'
   return '/'
 }
 
@@ -34,6 +36,7 @@ export default function App() {
         {route === '/' && <HomePage />}
         {route === '/hand-tracking' && <HandTrackingPage />}
         {route === '/eye-tracking' && <EyeTrackingPage />}
+        {route === '/flappy-bird' && <FlappyBirdPage />}
       </div>
     </div>
   )

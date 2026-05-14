@@ -47,11 +47,26 @@ export default function HomePage() {
         >
           👁️ Eye Tracking
         </button>
+        <button
+          onClick={() => navigate('/flappy-bird')}
+          style={{
+            padding: '10px 24px',
+            borderRadius: 8,
+            border: '2px solid #ffe04b',
+            cursor: 'pointer',
+            background: '#16213e',
+            color: '#fff',
+            fontSize: 16,
+          }}
+        >
+          🐦 Flappy Bird
+        </button>
       </div>
       <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 500, textAlign: 'center' }}>
         Hand Tracking uses your webcam and MediaPipe to turn your right index finger into a
         pointer. Eye Tracking uses Peekr (MIT, ONNX) to map your gaze to the canvas — dwell
-        your eyes on a spot to click.
+        your eyes on a spot to click. Flappy Bird is a minimal game rendered entirely with
+        tldraw shapes.
       </p>
     </div>
   )
