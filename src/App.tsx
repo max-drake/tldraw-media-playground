@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react'
 import HomePage from './pages/HomePage'
 import HandTrackingPage from './pages/HandTrackingPage'
 import EyeTrackingPage from './pages/EyeTrackingPage'
+import BlinkToClickPage from './pages/BlinkToClickPage'
 import NavBar from './components/NavBar'
 
-type Route = '/' | '/hand-tracking' | '/eye-tracking'
+type Route = '/' | '/hand-tracking' | '/eye-tracking' | '/blink-to-click'
 
 function getRoute(): Route {
   const path = window.location.pathname
   if (path === '/hand-tracking') return '/hand-tracking'
   if (path === '/eye-tracking') return '/eye-tracking'
+  if (path === '/blink-to-click') return '/blink-to-click'
   return '/'
 }
 
@@ -34,6 +36,7 @@ export default function App() {
         {route === '/' && <HomePage />}
         {route === '/hand-tracking' && <HandTrackingPage />}
         {route === '/eye-tracking' && <EyeTrackingPage />}
+        {route === '/blink-to-click' && <BlinkToClickPage />}
       </div>
     </div>
   )
