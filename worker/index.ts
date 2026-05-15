@@ -2,9 +2,10 @@
  * Cloudflare Worker – minimal routing for the tldraw multi-page SPA.
  *
  * Known SPA routes:
- *   /          → home / landing
- *   /page-1    → Page 1 editor
- *   /page-2    → Page 2 editor
+ *   /               → home / landing
+ *   /hand-tracking  → Hand Tracking editor
+ *   /eye-tracking   → Eye Tracking editor
+ *   /voice-drawing  → Voice Drawing editor
  *
  * All SPA routes serve index.html; the client-side router handles rendering.
  * Everything else is served from the KV-backed static asset bucket (JS, CSS, etc.).
@@ -15,7 +16,7 @@ import manifestJSON from '__STATIC_CONTENT_MANIFEST'
 
 const assetManifest = JSON.parse(manifestJSON)
 
-const SPA_ROUTES = new Set(['/', '/page-1', '/page-2'])
+const SPA_ROUTES = new Set(['/', '/hand-tracking', '/eye-tracking', '/voice-drawing'])
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
