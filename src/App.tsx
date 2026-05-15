@@ -4,7 +4,7 @@ import HandTrackingPage from './pages/HandTrackingPage'
 import EyeTrackingPage from './pages/EyeTrackingPage'
 import NavBar from './components/NavBar'
 
-type Route = '/' | '/hand-tracking' | '/eye-tracking'
+export type Route = '/' | '/hand-tracking' | '/eye-tracking'
 
 function getRoute(): Route {
   const path = window.location.pathname
