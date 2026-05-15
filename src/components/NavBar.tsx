@@ -1,6 +1,5 @@
 import { navigate } from '../App'
-
-type Route = '/' | '/hand-tracking' | '/eye-tracking'
+import type { Route } from '../App'
 
 interface NavBarProps {
   current: Route

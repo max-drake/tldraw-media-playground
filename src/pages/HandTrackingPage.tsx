@@ -29,6 +29,7 @@ import { atom } from '@tldraw/state'
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision'
 import type { TLOverlay } from 'tldraw'
+import { dispatchPointerEvent } from '../utils/pointerEvents'
 
 // Hand landmark indices (MediaPipe convention)
 const INDEX_TIP = 8
@@ -114,7 +115,7 @@ export class PointerOverlayUtil extends OverlayUtil<TLHandPointerOverlay> {
   render(ctx: CanvasRenderingContext2D, overlays: TLHandPointerOverlay[]): void {
     for (const overlay of overlays) {
       const { x, y, pinching } = overlay.props
-      _drawPointer(ctx, x, y, pinching, POINTER_RADIUS, POINTER_PINCH_RADIUS)
+      drawPointer(ctx, x, y, pinching, POINTER_RADIUS, POINTER_PINCH_RADIUS)
     }
   }
 
@@ -123,13 +124,13 @@ export class PointerOverlayUtil extends OverlayUtil<TLHandPointerOverlay> {
     overlays: TLHandPointerOverlay[],
     zoom: number
   ): void {
-    // The context is already in page space. We convert our desired pixel radius
-    // into page units so the dot is a consistent size on screen.
+    // Convert our desired pixel radius into page units so the dot is a
+    // consistent pixel size on screen regardless of zoom.
     const r = MINIMAP_RADIUS / zoom
 
     for (const overlay of overlays) {
       const { x, y, pinching } = overlay.props
-      _drawPointer(ctx, x, y, pinching, r, r * 0.67)
+      drawPointer(ctx, x, y, pinching, r, r * 0.67)
     }
   }
 }
@@ -142,7 +143,7 @@ export class PointerOverlayUtil extends OverlayUtil<TLHandPointerOverlay> {
  *    indicates the finger is hovering but not "pressing".
  *  - Pinching: solid filled circle – indicates a click / drag is active.
  */
-function _drawPointer(
+function drawPointer(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -283,9 +284,7 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
         ;(video.srcObject as MediaStream).getTracks().forEach((t) => t.stop())
         video.srcObject = null
       }
-      // Hide the overlay pointer when the controller unmounts
       handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false })
-      // Restore default pointer environment
       tlenvReactive.set({ ...tlenvReactive.get(), isCoarsePointer: false })
     }
     // editor is stable for the component lifetime; safe to omit from deps.
@@ -320,15 +319,9 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
       handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false })
       if (isPinchedRef.current) {
         isPinchedRef.current = false
-        editor.dispatch({
-          type: 'pointer',
+        dispatchPointerEvent(editor, {
           name: 'pointer_up',
-          target: 'canvas',
-          button: 0,
-          isPen: false,
-          pointerId: 1,
           point: editor.inputs.currentPagePoint,
-          shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
         })
       }
       return
@@ -345,57 +338,24 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
     // Euclidean distance in normalised [0,1] space.
     const dx = indexTip.x - thumbTip.x
     const dy = indexTip.y - thumbTip.y
-    const dist = Math.sqrt(dx * dx + dy * dy)
-    const pinching = dist < PINCH_THRESHOLD
+    const pinching = Math.sqrt(dx * dx + dy * dy) < PINCH_THRESHOLD
 
     const point = { x: screenX, y: screenY }
 
     // Convert screen-space → page-space for the overlay util.
     const pagePoint = editor.screenToPage(point)
-    handPointerAtom.set({
-      visible: true,
-      x: pagePoint.x,
-      y: pagePoint.y,
-      pinching,
-    })
+    handPointerAtom.set({ visible: true, x: pagePoint.x, y: pagePoint.y, pinching })
 
     // Always send a move event so the cursor tracks the finger tip.
-    editor.dispatch({
-      type: 'pointer',
-      name: 'pointer_move',
-      target: 'canvas',
-      button: 0,
-      isPen: false,
-      pointerId: 1,
-      point,
-      shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-    })
+    dispatchPointerEvent(editor, { name: 'pointer_move', point })
 
     // Transition pinch state.
     if (pinching && !isPinchedRef.current) {
       isPinchedRef.current = true
-      editor.dispatch({
-        type: 'pointer',
-        name: 'pointer_down',
-        target: 'canvas',
-        button: 0,
-        isPen: false,
-        pointerId: 1,
-        point,
-        shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-      })
+      dispatchPointerEvent(editor, { name: 'pointer_down', point })
     } else if (!pinching && isPinchedRef.current) {
       isPinchedRef.current = false
-      editor.dispatch({
-        type: 'pointer',
-        name: 'pointer_up',
-        target: 'canvas',
-        button: 0,
-        isPen: false,
-        pointerId: 1,
-        point,
-        shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-      })
+      dispatchPointerEvent(editor, { name: 'pointer_up', point })
     }
   }
 

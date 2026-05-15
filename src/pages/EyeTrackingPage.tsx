@@ -30,6 +30,7 @@ import {
 } from 'tldraw'
 import { atom } from '@tldraw/state'
 import type { TLOverlay } from 'tldraw'
+import { dispatchPointerEvent } from '../utils/pointerEvents'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ interface TLEyePointerOverlay extends TLOverlay {
 const POINTER_RADIUS = 22
 const MINIMAP_RADIUS = 6
 
-function _drawEyePointer(
+function drawEyePointer(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -151,7 +152,7 @@ export class EyePointerOverlayUtil extends OverlayUtil<TLEyePointerOverlay> {
   render(ctx: CanvasRenderingContext2D, overlays: TLEyePointerOverlay[]): void {
     for (const ov of overlays) {
       const { x, y, dwellProgress, dwelling } = ov.props
-      _drawEyePointer(ctx, x, y, dwellProgress, dwelling, POINTER_RADIUS)
+      drawEyePointer(ctx, x, y, dwellProgress, dwelling, POINTER_RADIUS)
     }
   }
 
@@ -163,7 +164,7 @@ export class EyePointerOverlayUtil extends OverlayUtil<TLEyePointerOverlay> {
     const r = MINIMAP_RADIUS / zoom
     for (const ov of overlays) {
       const { x, y, dwellProgress, dwelling } = ov.props
-      _drawEyePointer(ctx, x, y, dwellProgress, dwelling, r)
+      drawEyePointer(ctx, x, y, dwellProgress, dwelling, r)
     }
   }
 }
@@ -184,10 +185,8 @@ function rawGazeToScreen(
   containerW: number,
   containerH: number,
 ): { sx: number; sy: number } {
-  const screenX = calib.xSlope * rawX + calib.xIntercept
-  const screenY = calib.ySlope * rawY + calib.yIntercept
-  const sx = Math.max(0, Math.min(containerW, screenX))
-  const sy = Math.max(0, Math.min(containerH, screenY))
+  const sx = Math.max(0, Math.min(containerW, calib.xSlope * rawX + calib.xIntercept))
+  const sy = Math.max(0, Math.min(containerH, calib.ySlope * rawY + calib.yIntercept))
   return { sx, sy }
 }
 
@@ -223,7 +222,7 @@ function computeCalibTransform(
   return { xSlope, xIntercept, ySlope, yIntercept }
 }
 
-// 5-dot calibration positions (normalized [0,1] of container): 4 corners + center
+// 5-dot calibration positions (normalised [0,1] of container): 4 corners + center
 const CALIB_POSITIONS: { px: number; py: number }[] = [
   { px: 0.1, py: 0.1 },
   { px: 0.9, py: 0.1 },
@@ -269,9 +268,7 @@ function CalibrationOverlay({
       setHoldProgress(progress)
 
       const g = latestGaze.current
-      if (g) {
-        samplesRef.current[idx].push({ x: g.x, y: g.y })
-      }
+      if (g) samplesRef.current[idx].push({ x: g.x, y: g.y })
 
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(tick)
@@ -288,14 +285,13 @@ function CalibrationOverlay({
           const rawSamplesArr: { x: number; y: number }[] = []
           const screenTargetsArr: { x: number; y: number }[] = []
           CALIB_POSITIONS.forEach((pos, i) => {
-            const dotScreenX = pos.px * rect.width
-            const dotScreenY = pos.py * rect.height
             const dots = samplesRef.current[i]
             if (dots.length > 0) {
-              const avgX = dots.reduce((a, b) => a + b.x, 0) / dots.length
-              const avgY = dots.reduce((a, b) => a + b.y, 0) / dots.length
-              rawSamplesArr.push({ x: avgX, y: avgY })
-              screenTargetsArr.push({ x: dotScreenX, y: dotScreenY })
+              rawSamplesArr.push({
+                x: dots.reduce((a, b) => a + b.x, 0) / dots.length,
+                y: dots.reduce((a, b) => a + b.y, 0) / dots.length,
+              })
+              screenTargetsArr.push({ x: pos.px * rect.width, y: pos.py * rect.height })
             }
           })
           const transform = computeCalibTransform(rawSamplesArr, screenTargetsArr)
@@ -465,10 +461,7 @@ function EyeTrackingController({ containerRef }: EyeTrackingControllerProps) {
   // Inject MediaPipe face_mesh CDN script (required by Peekr at runtime)
   useEffect(() => {
     const win = window as unknown as Record<string, unknown>
-    if (win['FaceMesh']) {
-      // Already loaded
-      return
-    }
+    if (win['FaceMesh']) return // already loaded
     setStatus('loading-script')
     const script = document.createElement('script')
     script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.min.js'
@@ -492,20 +485,19 @@ function EyeTrackingController({ containerRef }: EyeTrackingControllerProps) {
       if (!calib || !container) return
 
       const rect = container.getBoundingClientRect()
-
       const { sx, sy } = rawGazeToScreen(rawX, rawY, calib, rect.width, rect.height)
 
       // Exponential moving average smoothing
-      if (!smoothedRef.current) {
-        smoothedRef.current = { sx, sy }
-      } else {
-        smoothedRef.current = {
-          sx: SMOOTH_ALPHA * smoothedRef.current.sx + (1 - SMOOTH_ALPHA) * sx,
-          sy: SMOOTH_ALPHA * smoothedRef.current.sy + (1 - SMOOTH_ALPHA) * sy,
-        }
-      }
+      smoothedRef.current = smoothedRef.current
+        ? {
+            sx: SMOOTH_ALPHA * smoothedRef.current.sx + (1 - SMOOTH_ALPHA) * sx,
+            sy: SMOOTH_ALPHA * smoothedRef.current.sy + (1 - SMOOTH_ALPHA) * sy,
+          }
+        : { sx, sy }
+
       const { sx: smoothX, sy: smoothY } = smoothedRef.current
-      const pagePoint = editor.screenToPage({ x: smoothX, y: smoothY })
+      const point = { x: smoothX, y: smoothY }
+      const pagePoint = editor.screenToPage(point)
 
       // Dwell-to-click
       const now = performance.now()
@@ -519,49 +511,31 @@ function EyeTrackingController({ containerRef }: EyeTrackingControllerProps) {
         const dist = Math.sqrt(dx * dx + dy * dy)
 
         if (dist > DWELL_RADIUS) {
+          // Gaze moved – reset dwell timer
           dwellStartRef.current = { sx: smoothX, sy: smoothY, startTime: now }
         } else if (cooldownOk) {
-          const elapsed = now - dwellStartRef.current.startTime
-          const progress = Math.min(1, elapsed / DWELL_MS)
+          const progress = Math.min(1, (now - dwellStartRef.current.startTime) / DWELL_MS)
 
           if (progress >= 1) {
+            // Dwell complete – fire a click
             lastClickTimeRef.current = now
             dwellStartRef.current = { sx: smoothX, sy: smoothY, startTime: now }
-
-            const point = { x: smoothX, y: smoothY }
-            editor.dispatch({
-              type: 'pointer', name: 'pointer_down', target: 'canvas',
-              button: 0, isPen: false, pointerId: 1, point,
-              shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-            })
-            setTimeout(() => {
-              editor.dispatch({
-                type: 'pointer', name: 'pointer_up', target: 'canvas',
-                button: 0, isPen: false, pointerId: 1, point,
-                shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-              })
-            }, 80)
-
+            dispatchPointerEvent(editor, { name: 'pointer_down', point })
+            setTimeout(() => dispatchPointerEvent(editor, { name: 'pointer_up', point }), 80)
             eyePointerAtom.set({ visible: true, x: pagePoint.x, y: pagePoint.y, dwellProgress: 1, dwelling: false })
             return
           }
 
+          // Actively dwelling – show progress arc
           eyePointerAtom.set({ visible: true, x: pagePoint.x, y: pagePoint.y, dwellProgress: progress, dwelling: true })
-          editor.dispatch({
-            type: 'pointer', name: 'pointer_move', target: 'canvas',
-            button: 0, isPen: false, pointerId: 1, point: { x: smoothX, y: smoothY },
-            shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-          })
+          dispatchPointerEvent(editor, { name: 'pointer_move', point })
           return
         }
       }
 
+      // Default: move cursor, no dwell in progress
       eyePointerAtom.set({ visible: true, x: pagePoint.x, y: pagePoint.y, dwellProgress: 0, dwelling: false })
-      editor.dispatch({
-        type: 'pointer', name: 'pointer_move', target: 'canvas',
-        button: 0, isPen: false, pointerId: 1, point: { x: smoothX, y: smoothY },
-        shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
-      })
+      dispatchPointerEvent(editor, { name: 'pointer_move', point })
     },
     [containerRef, editor],
   )
