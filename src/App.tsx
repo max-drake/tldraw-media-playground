@@ -13,6 +13,7 @@ function getRoute(): Route {
   return '/'
 }
 
+
 export function navigate(to: Route) {
   window.history.pushState(null, '', to)
   window.dispatchEvent(new PopStateEvent('popstate'))
