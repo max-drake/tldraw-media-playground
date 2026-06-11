@@ -47,11 +47,27 @@ export default function HomePage() {
         >
           👁️ Eye Tracking
         </button>
+        <button
+          onClick={() => navigate('/finger-tool-switch')}
+          style={{
+            padding: '10px 24px',
+            borderRadius: 8,
+            border: '2px solid #32c896',
+            cursor: 'pointer',
+            background: '#16213e',
+            color: '#fff',
+            fontSize: 16,
+          }}
+        >
+          🖐️ Finger Tool Switch
+        </button>
       </div>
-      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 500, textAlign: 'center' }}>
+      <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 560, textAlign: 'center' }}>
         Hand Tracking uses your webcam and MediaPipe to turn your right index finger into a
         pointer. Eye Tracking uses Peekr (MIT, ONNX) to map your gaze to the canvas — dwell
-        your eyes on a spot to click.
+        your eyes on a spot to click. Finger Tool Switch lets you switch active tools by
+        holding up different numbers of fingers: 1 = draw, 2 = arrow, 3 = rectangle, 4 = erase,
+        5 = text, fist = select.
       </p>
     </div>
   )

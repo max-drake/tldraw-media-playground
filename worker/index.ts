@@ -15,7 +15,7 @@ import manifestJSON from '__STATIC_CONTENT_MANIFEST'
 
 const assetManifest = JSON.parse(manifestJSON)
 
-const SPA_ROUTES = new Set(['/', '/page-1', '/page-2'])
+const SPA_ROUTES = new Set(['/', '/hand-tracking', '/eye-tracking', '/finger-tool-switch', '/page-1', '/page-2'])
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
