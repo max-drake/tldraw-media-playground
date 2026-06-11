@@ -6,6 +6,11 @@
  *  - The right index finger tip (landmark 8) drives `pointer_move` events.
  *  - Pinching index tip + thumb tip (landmarks 8 & 4, normalised distance
  *    below PINCH_THRESHOLD) fires `pointer_down`; releasing fires `pointer_up`.
+ *  - Undo gestures (configurable via UI toggle):
+ *      • "Thumbs-down" mode: hold thumb pointing downward (all other fingers
+ *        curled) for 500 ms to fire undo; repeats every 300 ms while held.
+ *      • "Scissors snip" mode: spread index+middle fingers wide (>=60°) then
+ *        snap them closed (<=15°) to fire one undo per snip.
  *
  * The webcam feed is shown in a small mirrored overlay so the user can see
  * themselves. Landmark x coordinates are flipped (1 - x) to match the mirror.
@@ -33,10 +38,37 @@ import type { TLOverlay } from 'tldraw'
 // Hand landmark indices (MediaPipe convention)
 const INDEX_TIP = 8
 const THUMB_TIP = 4
+const MIDDLE_TIP = 12
+const RING_TIP = 16
+const PINKY_TIP = 20
+const WRIST = 0
+const INDEX_MCP = 5   // Index finger base knuckle
+const MIDDLE_MCP = 9  // Middle finger base knuckle
+const RING_MCP = 13   // Ring finger base knuckle
+const PINKY_MCP = 17  // Pinky finger base knuckle
 
 // Distance threshold (in normalised [0,1] units) to consider a pinch active.
 // ~0.07 ≈ 7% of frame width, roughly the gap when fingers visually touch.
 const PINCH_THRESHOLD = 0.07
+
+// ---------------------------------------------------------------------------
+// Undo gesture configuration
+// ---------------------------------------------------------------------------
+
+/** Which hand gesture should trigger undo */
+export type UndoGestureMode = 'thumbs-down' | 'scissors'
+
+// Thumbs-down: thumb tip must be this far below the wrist (normalised y).
+const THUMB_DOWN_Y_MARGIN = 0.05
+
+// Scissors: angle thresholds (degrees) between index and middle finger tips.
+const SCISSORS_OPEN_DEG = 60
+const SCISSORS_CLOSED_DEG = 15
+
+// Hold duration (ms) before first undo fires in thumbs-down mode.
+const THUMBS_DOWN_HOLD_MS = 500
+// Repeat interval (ms) for continued thumbs-down hold.
+const THUMBS_DOWN_REPEAT_MS = 300
 
 // Persistent store so canvas state survives tab navigation
 const store = createTLStore({
@@ -58,6 +90,8 @@ interface HandPointerState {
   y: number
   /** True when a pinch (index + thumb close together) is detected */
   pinching: boolean
+  /** Currently active undo gesture for overlay feedback, or null */
+  undoGesture: 'thumbs-down' | 'scissors' | null
 }
 
 const handPointerAtom = atom<HandPointerState>('handPointer', {
@@ -65,6 +99,7 @@ const handPointerAtom = atom<HandPointerState>('handPointer', {
   x: 0,
   y: 0,
   pinching: false,
+  undoGesture: null,
 })
 
 // ---------------------------------------------------------------------------
@@ -77,6 +112,7 @@ interface TLHandPointerOverlay extends TLOverlay {
     x: number
     y: number
     pinching: boolean
+    undoGesture: 'thumbs-down' | 'scissors' | null
   }
 }
 
@@ -101,20 +137,21 @@ export class PointerOverlayUtil extends OverlayUtil<TLHandPointerOverlay> {
   }
 
   getOverlays(): TLHandPointerOverlay[] {
-    const { x, y, pinching } = handPointerAtom.get()
+    const { x, y, pinching, undoGesture } = handPointerAtom.get()
     return [
       {
         id: 'hand-pointer:tip',
         type: 'hand-pointer',
-        props: { x, y, pinching },
+        props: { x, y, pinching, undoGesture },
       },
     ]
   }
 
   render(ctx: CanvasRenderingContext2D, overlays: TLHandPointerOverlay[]): void {
     for (const overlay of overlays) {
-      const { x, y, pinching } = overlay.props
+      const { x, y, pinching, undoGesture } = overlay.props
       _drawPointer(ctx, x, y, pinching, POINTER_RADIUS, POINTER_PINCH_RADIUS)
+      if (undoGesture) _drawUndoIndicator(ctx, x, y, undoGesture, POINTER_RADIUS)
     }
   }
 
@@ -128,8 +165,9 @@ export class PointerOverlayUtil extends OverlayUtil<TLHandPointerOverlay> {
     const r = MINIMAP_RADIUS / zoom
 
     for (const overlay of overlays) {
-      const { x, y, pinching } = overlay.props
+      const { x, y, pinching, undoGesture } = overlay.props
       _drawPointer(ctx, x, y, pinching, r, r * 0.67)
+      if (undoGesture) _drawUndoIndicator(ctx, x, y, undoGesture, r)
     }
   }
 }
@@ -180,6 +218,91 @@ function _drawPointer(
   ctx.restore()
 }
 
+
+/**
+ * Draw an undo-gesture feedback indicator on the canvas.
+ * thumbs-down: orange outer ring + downward arrow (while hold is active).
+ * scissors:    cyan X-mark flash (snip just fired this frame).
+ */
+function _drawUndoIndicator(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  gesture: 'thumbs-down' | 'scissors',
+  radius: number
+): void {
+  ctx.save()
+  const r = radius
+  if (gesture === 'thumbs-down') {
+    ctx.beginPath()
+    ctx.arc(x, y, r * 1.5, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(255,165,0,0.85)'
+    ctx.lineWidth = Math.max(1, r * 0.2)
+    ctx.stroke()
+    const ay = y + r * 2.2, ah = r * 0.5
+    ctx.beginPath()
+    ctx.moveTo(x, ay + ah)
+    ctx.lineTo(x - ah, ay - ah * 0.5)
+    ctx.lineTo(x + ah, ay - ah * 0.5)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(255,165,0,0.85)'
+    ctx.fill()
+  } else {
+    const sz = r * 0.7
+    ctx.strokeStyle = 'rgba(0,220,220,0.9)'
+    ctx.lineWidth = Math.max(1, r * 0.2)
+    ctx.beginPath(); ctx.moveTo(x - sz, y - sz); ctx.lineTo(x + sz, y + sz); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(x + sz, y - sz); ctx.lineTo(x - sz, y + sz); ctx.stroke()
+  }
+  ctx.restore()
+}
+
+// ---------------------------------------------------------------------------
+// Undo gesture detection helpers (exported for unit testing)
+// ---------------------------------------------------------------------------
+
+type Landmark = { x: number; y: number; z: number }
+
+/**
+ * Returns true when landmarks show a "thumbs-down" pose:
+ * - Thumb tip is below the wrist by at least THUMB_DOWN_Y_MARGIN.
+ * - All four non-thumb fingers are curled (each tip.y >= its MCP.y).
+ */
+export function detectThumbsDown(landmarks: Landmark[]): boolean {
+  const wrist = landmarks[WRIST]
+  const thumbTip = landmarks[THUMB_TIP]
+  if (thumbTip.y < wrist.y + THUMB_DOWN_Y_MARGIN) return false
+  const pairs: [number, number][] = [
+    [INDEX_TIP, INDEX_MCP],
+    [MIDDLE_TIP, MIDDLE_MCP],
+    [RING_TIP, RING_MCP],
+    [PINKY_TIP, PINKY_MCP],
+  ]
+  for (const [tipIdx, mcpIdx] of pairs) {
+    if (landmarks[tipIdx].y < landmarks[mcpIdx].y) return false
+  }
+  return true
+}
+
+/**
+ * Returns the opening angle (degrees) between index and middle finger tips,
+ * measured from their shared MCP midpoint base.
+ *
+ * >= SCISSORS_OPEN_DEG   → scissors are open
+ * <= SCISSORS_CLOSED_DEG → scissors are closed (snip edge = undo trigger)
+ */
+export function getScissorsAngleDeg(landmarks: Landmark[]): number {
+  const iT = landmarks[INDEX_TIP], mT = landmarks[MIDDLE_TIP]
+  const iM = landmarks[INDEX_MCP], mM = landmarks[MIDDLE_MCP]
+  const bx = (iM.x + mM.x) / 2, by = (iM.y + mM.y) / 2
+  const ax = iT.x - bx, ay = iT.y - by
+  const cx = mT.x - bx, cy = mT.y - by
+  const dot = ax * cx + ay * cy
+  const magA = Math.sqrt(ax * ax + ay * ay)
+  const magC = Math.sqrt(cx * cx + cy * cy)
+  if (magA < 1e-6 || magC < 1e-6) return 0
+  return (Math.acos(Math.max(-1, Math.min(1, dot / (magA * magC)))) * 180) / Math.PI
+}
+
 // ---------------------------------------------------------------------------
 // HandTrackingController – inner component that runs inside the Tldraw tree
 // so it can call useEditor().
@@ -187,9 +310,11 @@ function _drawPointer(
 
 interface HandTrackingControllerProps {
   containerRef: React.RefObject<HTMLDivElement | null>
+  /** Which gesture mode triggers undo */
+  undoGestureMode: UndoGestureMode
 }
 
-function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
+function HandTrackingController({ containerRef, undoGestureMode }: HandTrackingControllerProps) {
   const editor = useEditor()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const rafRef = useRef<number | null>(null)
@@ -197,6 +322,13 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
   const isPinchedRef = useRef(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
+
+  // Undo gesture refs
+  const undoGestureModeRef = useRef<UndoGestureMode>(undoGestureMode)
+  useEffect(() => { undoGestureModeRef.current = undoGestureMode }, [undoGestureMode])
+  const thumbsDownStartRef = useRef<number | null>(null)
+  const thumbsDownLastFireRef = useRef<number | null>(null)
+  const scissorsWasOpenRef = useRef<boolean>(false)
 
   useEffect(() => {
     // Tell tldraw to use wider coarse-pointer hit areas, which suits the
@@ -284,7 +416,7 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
         video.srcObject = null
       }
       // Hide the overlay pointer when the controller unmounts
-      handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false })
+      handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false, undoGesture: null })
       // Restore default pointer environment
       tlenvReactive.set({ ...tlenvReactive.get(), isCoarsePointer: false })
     }
@@ -317,7 +449,10 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
 
     if (rightHandIdx === -1) {
       // No right hand detected – hide overlay and cancel any active pinch drag.
-      handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false })
+      handPointerAtom.set({ visible: false, x: 0, y: 0, pinching: false, undoGesture: null })
+      thumbsDownStartRef.current = null
+      thumbsDownLastFireRef.current = null
+      scissorsWasOpenRef.current = false
       if (isPinchedRef.current) {
         isPinchedRef.current = false
         editor.dispatch({
@@ -350,6 +485,41 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
 
     const point = { x: screenX, y: screenY }
 
+    // ---- Undo gesture detection ----
+    const now = performance.now()
+    let undoGesture: 'thumbs-down' | 'scissors' | null = null
+
+    if (undoGestureModeRef.current === 'thumbs-down') {
+      const isThumbsDown = detectThumbsDown(landmarks)
+      if (isThumbsDown) {
+        if (thumbsDownStartRef.current === null) {
+          thumbsDownStartRef.current = now
+          thumbsDownLastFireRef.current = null
+        }
+        const held = now - thumbsDownStartRef.current
+        if (held >= THUMBS_DOWN_HOLD_MS) {
+          const lastFire = thumbsDownLastFireRef.current
+          if (lastFire === null || now - lastFire >= THUMBS_DOWN_REPEAT_MS) {
+            editor.undo()
+            thumbsDownLastFireRef.current = now
+          }
+        }
+        undoGesture = 'thumbs-down'
+      } else {
+        thumbsDownStartRef.current = null
+        thumbsDownLastFireRef.current = null
+      }
+    } else if (undoGestureModeRef.current === 'scissors') {
+      const angleDeg = getScissorsAngleDeg(landmarks)
+      const isOpen = angleDeg >= SCISSORS_OPEN_DEG
+      const isClosed = angleDeg <= SCISSORS_CLOSED_DEG
+      if (isClosed && scissorsWasOpenRef.current) {
+        editor.undo()
+        undoGesture = 'scissors'
+      }
+      scissorsWasOpenRef.current = isOpen
+    }
+
     // Convert screen-space → page-space for the overlay util.
     const pagePoint = editor.screenToPage(point)
     handPointerAtom.set({
@@ -357,6 +527,7 @@ function HandTrackingController({ containerRef }: HandTrackingControllerProps) {
       x: pagePoint.x,
       y: pagePoint.y,
       pinching,
+      undoGesture,
     })
 
     // Always send a move event so the cursor tracks the finger tip.
@@ -482,12 +653,54 @@ const overlayUtils = [...defaultOverlayUtils, PointerOverlayUtil] as const
 
 export default function HandTrackingPage() {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const [undoGestureMode, setUndoGestureMode] = useState<UndoGestureMode>('thumbs-down')
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Tldraw store={store} overlayUtils={overlayUtils}>
-        <HandTrackingController containerRef={containerRef} />
+        <HandTrackingController
+          containerRef={containerRef}
+          undoGestureMode={undoGestureMode}
+        />
       </Tldraw>
+
+      {/* Undo gesture mode toggle – bottom-left corner */}
+      <div style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ background: 'rgba(0,0,0,0.65)', color: '#ccc', fontSize: 11, borderRadius: 6, padding: '4px 10px', pointerEvents: 'none' }}>
+          Undo gesture
+        </div>
+        <button
+          onClick={() => setUndoGestureMode('thumbs-down')}
+          title="Hold thumb pointing DOWN (all other fingers curled) for 0.5 s to undo. Repeats every 0.3 s while held."
+          style={{
+            background: undoGestureMode === 'thumbs-down' ? 'rgba(255,165,0,0.85)' : 'rgba(0,0,0,0.65)',
+            color: undoGestureMode === 'thumbs-down' ? '#000' : '#ccc',
+            border: '1.5px solid rgba(255,165,0,0.7)',
+            borderRadius: 6, padding: '6px 12px', fontSize: 13, cursor: 'pointer',
+            fontWeight: undoGestureMode === 'thumbs-down' ? 700 : 400, whiteSpace: 'nowrap',
+          }}
+        >
+          👎 Thumbs-down undo
+        </button>
+        <button
+          onClick={() => setUndoGestureMode('scissors')}
+          title="Spread index and middle fingers wide (≥60°), then snap them shut (≤15°) to undo. Each snip = one undo."
+          style={{
+            background: undoGestureMode === 'scissors' ? 'rgba(0,220,220,0.85)' : 'rgba(0,0,0,0.65)',
+            color: undoGestureMode === 'scissors' ? '#000' : '#ccc',
+            border: '1.5px solid rgba(0,220,220,0.7)',
+            borderRadius: 6, padding: '6px 12px', fontSize: 13, cursor: 'pointer',
+            fontWeight: undoGestureMode === 'scissors' ? 700 : 400, whiteSpace: 'nowrap',
+          }}
+        >
+          ✂️ Scissors snip undo
+        </button>
+        <div style={{ background: 'rgba(0,0,0,0.5)', color: '#999', fontSize: 10, borderRadius: 5, padding: '3px 8px', pointerEvents: 'none', maxWidth: 190, lineHeight: 1.4 }}>
+          {undoGestureMode === 'thumbs-down'
+            ? '👎 Point thumb DOWN, all fingers curled. Hold 0.5 s to undo. Repeats every 0.3 s.'
+            : '✂️ Spread index + middle wide, then snap shut to snip-undo.'}
+        </div>
+      </div>
     </div>
   )
 }
