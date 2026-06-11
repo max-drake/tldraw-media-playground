@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+
 import HomePage from './pages/HomePage'
 import HandTrackingPage from './pages/HandTrackingPage'
 import EyeTrackingPage from './pages/EyeTrackingPage'
