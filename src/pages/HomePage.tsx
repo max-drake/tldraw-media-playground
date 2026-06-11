@@ -31,7 +31,7 @@ export default function HomePage() {
             fontSize: 16,
           }}
         >
-          ✋ Hand Tracking
+          Hand Tracking
         </button>
         <button
           onClick={() => navigate('/eye-tracking')}
@@ -45,13 +45,27 @@ export default function HomePage() {
             fontSize: 16,
           }}
         >
-          👁️ Eye Tracking
+          Eye Tracking
+        </button>
+        <button
+          onClick={() => navigate('/two-hand-zoom')}
+          style={{
+            padding: '10px 24px',
+            borderRadius: 8,
+            border: '2px solid #50c8ff',
+            cursor: 'pointer',
+            background: '#16213e',
+            color: '#fff',
+            fontSize: 16,
+          }}
+        >
+          Two-Hand Zoom
         </button>
       </div>
       <p style={{ fontSize: 13, opacity: 0.6, maxWidth: 500, textAlign: 'center' }}>
         Hand Tracking uses your webcam and MediaPipe to turn your right index finger into a
-        pointer. Eye Tracking uses Peekr (MIT, ONNX) to map your gaze to the canvas — dwell
-        your eyes on a spot to click.
+        pointer. Eye Tracking uses Peekr (MIT, ONNX) to map your gaze to the canvas. Two-Hand
+        Zoom uses both hands to zoom and pan the canvas.
       </p>
     </div>
   )
